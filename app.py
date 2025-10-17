@@ -15,7 +15,11 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 import os
 from datetime import datetime, timedelta
+import gc
+import os
 
+# Cấu hình memory
+os.environ['OMP_NUM_THREADS'] = '1'
 app = Flask(__name__)
 CORS(app)  # Cho phép frontend gọi API
 
@@ -44,18 +48,27 @@ def base64_to_image(base64_string):
     return np.array(image)
 
 def load_registered_faces():
-    """Tải tất cả khuôn mặt đã đăng ký từ Firebase"""
+    """Tải faces với giới hạn"""
     global registered_faces
     registered_faces = {}
     
-    employees = db.collection('employees').stream()
-    for emp in employees:
-        data = emp.to_dict()
-        name = data['name']
-        descriptor = np.array(data['descriptor'])
-        registered_faces[name] = descriptor
-    
-    print(f"✅ Đã tải {len(registered_faces)} nhân viên")
+    try:
+        employees = db.collection('employees').limit(50).stream()  # Giới hạn 50
+        for emp in employees:
+            data = emp.to_dict()
+            name = data['name']
+            descriptor = np.array(data['descriptor'], dtype=np.float32)  # Dùng float32 thay vì float64
+            registered_faces[name] = descriptor
+        
+        gc.collect()  # Thu gom rác
+        print(f"✅ Đã tải {len(registered_faces)} nhân viên")
+    except Exception as e:
+        print(f"❌ Lỗi load faces: {e}")
+        
+@app.after_request
+def after_request(response):
+    gc.collect()
+    return response
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
