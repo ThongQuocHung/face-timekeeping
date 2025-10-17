@@ -34,14 +34,5 @@ ENV OMP_NUM_THREADS=1
 # Expose port (Railway will provide PORT env var)
 EXPOSE 8080
 
-# Start command with gunicorn
-CMD gunicorn app:app \
-    --bind 0.0.0.0:$PORT \
-    --workers 1 \
-    --threads 2 \
-    --timeout 120 \
-    --max-requests 100 \
-    --max-requests-jitter 20 \
-    --worker-class sync \
-    --worker-tmp-dir /dev/shm \
-    --log-level info
+# Start command with gunicorn (use shell form for env var expansion)
+CMD ["sh", "-c", "gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 2 --timeout 120 --max-requests 100 --max-requests-jitter 20 --worker-class sync --worker-tmp-dir /dev/shm --log-level info"]
