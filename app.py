@@ -1,11 +1,12 @@
 """
-Flask API Backend cho Face Recognition với DeepFace
-Optimized for Render deployment
+Flask API Backend cho Face Recognition
+Cài đặt:
+pip install flask flask-cors face_recognition opencv-python pillow firebase-admin
 """
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from deepface import DeepFace
+import face_recognition
 import numpy as np
 import base64
 from io import BytesIO
@@ -14,55 +15,27 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 import os
 from datetime import datetime, timedelta
-import json
 
 app = Flask(__name__)
+CORS(app)  # Cho phép frontend gọi API
 
-# CORS config cho production
-CORS(app, resources={
-    r"/api/*": {
-        "origins": "*",  # Thay bằng domain cụ thể nếu cần
-        "methods": ["GET", "POST", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
-    }
+# Khởi tạo Firebase Admin
+import os
+cred_path = os.environ.get('FIREBASE_CREDENTIALS', 'firebase-key.json')
+cred = credentials.Certificate(cred_path)
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'face-timekeeping-31820.firebasestorage.app'
 })
 
-# Khởi tạo Firebase
-def init_firebase():
-    """Khởi tạo Firebase từ environment variable hoặc file"""
-    try:
-        # Ưu tiên lấy từ environment variable (Render Secret)
-        firebase_creds = os.environ.get('FIREBASE_CREDENTIALS')
-        
-        if firebase_creds:
-            # Parse JSON từ env variable
-            cred_dict = json.loads(firebase_creds)
-            cred = credentials.Certificate(cred_dict)
-        else:
-            # Fallback về file (cho local dev)
-            cred_path = 'firebase-key.json'
-            cred = credentials.Certificate(cred_path)
-        
-        firebase_admin.initialize_app(cred, {
-            'storageBucket': 'face-timekeeping-31820.firebasestorage.app'
-        })
-        
-        print("✅ Firebase initialized successfully")
-        return True
-    except Exception as e:
-        print(f"❌ Firebase initialization error: {e}")
-        return False
+db = firestore.client()
+bucket = storage.bucket()
 
-# Khởi tạo Firebase
-firebase_initialized = init_firebase()
-db = firestore.client() if firebase_initialized else None
-bucket = storage.bucket() if firebase_initialized else None
-
-# Cache embeddings
+# Cache khuôn mặt đã đăng ký trong memory
 registered_faces = {}
 
 def base64_to_image(base64_string):
-    """Chuyển base64 sang numpy array"""
+    """Chuyển đổi base64 string sang numpy array"""
+    # Loại bỏ header nếu có
     if ',' in base64_string:
         base64_string = base64_string.split(',')[1]
     
@@ -70,79 +43,35 @@ def base64_to_image(base64_string):
     image = Image.open(BytesIO(image_data))
     return np.array(image)
 
-def get_face_embedding(image):
-    """Lấy embedding từ ảnh"""
-    try:
-        embedding_objs = DeepFace.represent(
-            img_path=image,
-            model_name="Facenet",
-            enforce_detection=True,
-            detector_backend="opencv"
-        )
-        
-        if embedding_objs and len(embedding_objs) > 0:
-            return np.array(embedding_objs[0]["embedding"])
-        return None
-    except Exception as e:
-        print(f"Lỗi get_face_embedding: {e}")
-        return None
-
-def cosine_similarity(embedding1, embedding2):
-    """Tính độ tương đồng cosine"""
-    return np.dot(embedding1, embedding2) / (
-        np.linalg.norm(embedding1) * np.linalg.norm(embedding2)
-    )
-
 def load_registered_faces():
-    """Tải embeddings từ Firebase"""
+    """Tải tất cả khuôn mặt đã đăng ký từ Firebase"""
     global registered_faces
-    
-    if not db:
-        print("⚠️ Database not initialized")
-        return
-    
     registered_faces = {}
     
-    try:
-        employees = db.collection('employees').stream()
-        for emp in employees:
-            data = emp.to_dict()
-            name = data['name']
-            embedding = np.array(data['embedding'])
-            registered_faces[name] = embedding
-        
-        print(f"✅ Đã tải {len(registered_faces)} nhân viên")
-    except Exception as e:
-        print(f"❌ Lỗi load_registered_faces: {e}")
-
-@app.route('/', methods=['GET'])
-def home():
-    """Root endpoint"""
-    return jsonify({
-        'service': 'Face Recognition API',
-        'status': 'running',
-        'endpoints': [
-            '/api/health',
-            '/api/detect',
-            '/api/recognize',
-            '/api/register',
-            '/api/employees',
-            '/api/attendance'
-        ]
-    })
+    employees = db.collection('employees').stream()
+    for emp in employees:
+        data = emp.to_dict()
+        name = data['name']
+        descriptor = np.array(data['descriptor'])
+        registered_faces[name] = descriptor
+    
+    print(f"✅ Đã tải {len(registered_faces)} nhân viên")
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Health check"""
+    """Kiểm tra API hoạt động"""
     return jsonify({
         'status': 'ok',
-        'registered_employees': len(registered_faces),
-        'firebase_connected': firebase_initialized
+        'registered_employees': len(registered_faces)
     })
 
 @app.route('/api/detect', methods=['POST'])
 def detect_face():
-    """Phát hiện khuôn mặt"""
+    """
+    Phát hiện khuôn mặt trong ảnh
+    Input: { "image": "base64_string" }
+    Output: { "faces_detected": int, "locations": [...] }
+    """
     try:
         data = request.json
         image_base64 = data.get('image')
@@ -150,27 +79,13 @@ def detect_face():
         if not image_base64:
             return jsonify({'error': 'Thiếu ảnh'}), 400
         
+        # Chuyển đổi và phát hiện
         image = base64_to_image(image_base64)
-        
-        faces = DeepFace.extract_faces(
-            img_path=image,
-            detector_backend="opencv",
-            enforce_detection=False
-        )
-        
-        locations = []
-        for face in faces:
-            area = face['facial_area']
-            locations.append([
-                area['y'],
-                area['x'] + area['w'],
-                area['y'] + area['h'],
-                area['x']
-            ])
+        face_locations = face_recognition.face_locations(image)
         
         return jsonify({
-            'faces_detected': len(locations),
-            'locations': locations
+            'faces_detected': len(face_locations),
+            'locations': face_locations
         })
     
     except Exception as e:
@@ -178,7 +93,11 @@ def detect_face():
 
 @app.route('/api/recognize', methods=['POST'])
 def recognize_face():
-    """Nhận diện khuôn mặt"""
+    """
+    Nhận diện khuôn mặt
+    Input: { "image": "base64_string" }
+    Output: { "name": "...", "confidence": 0.95, "distance": 0.4 }
+    """
     try:
         data = request.json
         image_base64 = data.get('image')
@@ -187,49 +106,44 @@ def recognize_face():
         if not image_base64:
             return jsonify({'error': 'Thiếu ảnh'}), 400
         
+        # Chuyển đổi ảnh
         image = base64_to_image(image_base64)
-        embedding = get_face_embedding(image)
         
-        if embedding is None:
+        # Phát hiện và mã hóa khuôn mặt
+        face_locations = face_recognition.face_locations(image)
+        
+        if len(face_locations) == 0:
             return jsonify({'name': None, 'message': 'Không phát hiện khuôn mặt'})
         
-        best_match = None
-        max_similarity = threshold
+        face_encodings = face_recognition.face_encodings(image, face_locations)
         
-        for name, known_embedding in registered_faces.items():
-            similarity = cosine_similarity(embedding, known_embedding)
-            if similarity > max_similarity:
-                max_similarity = similarity
+        if len(face_encodings) == 0:
+            return jsonify({'name': None, 'message': 'Không thể mã hóa khuôn mặt'})
+        
+        # So sánh với database
+        face_encoding = face_encodings[0]
+        best_match = None
+        min_distance = threshold
+        
+        for name, known_encoding in registered_faces.items():
+            distance = face_recognition.face_distance([known_encoding], face_encoding)[0]
+            if distance < min_distance:
+                min_distance = distance
                 best_match = name
         
         if best_match:
-            faces = DeepFace.extract_faces(
-                img_path=image,
-                detector_backend="opencv",
-                enforce_detection=False
-            )
-            
-            location = None
-            if faces:
-                area = faces[0]['facial_area']
-                location = [
-                    area['y'],
-                    area['x'] + area['w'],
-                    area['y'] + area['h'],
-                    area['x']
-                ]
-            
+            confidence = 1 - min_distance
             return jsonify({
                 'name': best_match,
-                'confidence': round(max_similarity, 3),
-                'distance': round(1 - max_similarity, 3),
-                'location': location
+                'confidence': round(confidence, 3),
+                'distance': round(min_distance, 3),
+                'location': face_locations[0]
             })
         else:
             return jsonify({
                 'name': None,
                 'message': 'Không nhận diện được',
-                'max_similarity': round(max_similarity, 3)
+                'min_distance': round(min_distance, 3)
             })
     
     except Exception as e:
@@ -237,11 +151,12 @@ def recognize_face():
 
 @app.route('/api/register', methods=['POST'])
 def register_face():
-    """Đăng ký khuôn mặt mới"""
+    """
+    Đăng ký khuôn mặt mới
+    Input: { "name": "...", "image": "base64_string" }
+    Output: { "success": true, "message": "..." }
+    """
     try:
-        if not db:
-            return jsonify({'error': 'Database not available'}), 503
-        
         data = request.json
         name = data.get('name')
         image_base64 = data.get('image')
@@ -249,32 +164,34 @@ def register_face():
         if not name or not image_base64:
             return jsonify({'error': 'Thiếu tên hoặc ảnh'}), 400
         
+        # Chuyển đổi ảnh
         image = base64_to_image(image_base64)
         
-        faces = DeepFace.extract_faces(
-            img_path=image,
-            detector_backend="opencv",
-            enforce_detection=True
-        )
+        # Phát hiện và mã hóa
+        face_locations = face_recognition.face_locations(image)
         
-        if len(faces) == 0:
+        if len(face_locations) == 0:
             return jsonify({'error': 'Không phát hiện khuôn mặt trong ảnh'}), 400
         
-        if len(faces) > 1:
-            return jsonify({'error': 'Phát hiện nhiều hơn 1 khuôn mặt'}), 400
+        if len(face_locations) > 1:
+            return jsonify({'error': 'Phát hiện nhiều hơn 1 khuôn mặt. Vui lòng chỉ có 1 người trong ảnh'}), 400
         
-        embedding = get_face_embedding(image)
+        face_encodings = face_recognition.face_encodings(image, face_locations)
         
-        if embedding is None:
+        if len(face_encodings) == 0:
             return jsonify({'error': 'Không thể mã hóa khuôn mặt'}), 400
         
+        face_encoding = face_encodings[0]
+        
+        # Lưu vào Firebase
         db.collection('employees').document(name).set({
             'name': name,
-            'embedding': embedding.tolist(),
+            'descriptor': face_encoding.tolist(),
             'createdAt': firestore.SERVER_TIMESTAMP
         })
         
-        registered_faces[name] = embedding
+        # Cập nhật cache
+        registered_faces[name] = face_encoding
         
         return jsonify({
             'success': True,
@@ -297,13 +214,13 @@ def get_employees():
 def delete_employee(name):
     """Xóa nhân viên"""
     try:
-        if not db:
-            return jsonify({'error': 'Database not available'}), 503
-        
         if name not in registered_faces:
             return jsonify({'error': 'Nhân viên không tồn tại'}), 404
         
+        # Xóa từ Firebase
         db.collection('employees').document(name).delete()
+        
+        # Xóa từ cache
         del registered_faces[name]
         
         return jsonify({
@@ -317,11 +234,12 @@ def delete_employee(name):
 
 @app.route('/api/attendance', methods=['POST'])
 def check_attendance():
-    """Chấm công"""
+    """
+    Chấm công
+    Input: { "name": "...", "is_auto": true/false }
+    Output: { "success": true, "message": "..." }
+    """
     try:
-        if not db:
-            return jsonify({'error': 'Database not available'}), 503
-        
         data = request.json
         name = data.get('name')
         is_auto = data.get('is_auto', False)
@@ -329,11 +247,15 @@ def check_attendance():
         if not name:
             return jsonify({'error': 'Thiếu tên nhân viên'}), 400
         
+        # Kiểm tra thời gian chờ
         settings = db.collection('settings').document('attendance').get()
-        cooldown = 30
         if settings.exists:
-            cooldown = settings.to_dict().get('cooldownMinutes', 30)
+            config = settings.to_dict()
+            cooldown = config.get('cooldownMinutes', 30)
+        else:
+            cooldown = 30
         
+        # Kiểm tra lần chấm công gần nhất
         recent = db.collection('attendance')\
             .where('name', '==', name)\
             .order_by('timestamp', direction=firestore.Query.DESCENDING)\
@@ -351,6 +273,7 @@ def check_attendance():
                     'message': f'Đã chấm công rồi! Vui lòng chờ {remaining} phút nữa'
                 }), 400
         
+        # Lưu chấm công
         db.collection('attendance').add({
             'name': name,
             'type': 'checkin',
@@ -368,7 +291,7 @@ def check_attendance():
 
 @app.route('/api/reload', methods=['POST'])
 def reload_faces():
-    """Reload embeddings"""
+    """Tải lại danh sách khuôn mặt từ Firebase"""
     try:
         load_registered_faces()
         return jsonify({
@@ -379,10 +302,11 @@ def reload_faces():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("🚀 Đang khởi động Face Recognition API (DeepFace)...")
+    print("🚀 Đang khởi động Face Recognition API...")
     print("📦 Đang tải dữ liệu từ Firebase...")
     load_registered_faces()
     print("✅ Sẵn sàng!")
     
+    # Lấy PORT từ biến môi trường (Render yêu cầu)
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
