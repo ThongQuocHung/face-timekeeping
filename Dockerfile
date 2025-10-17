@@ -3,7 +3,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies (FIXED - removed libgthread-2.0-0)
+# Install system dependencies (FIXED - replaced libgl1-mesa-glx with libgl1)
 RUN apt-get update && apt-get install -y \
     cmake \
     build-essential \
@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
-    libgl1-mesa-glx \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
