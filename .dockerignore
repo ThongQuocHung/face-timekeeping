@@ -1,40 +1,36 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
+__pycache__
+*.pyc
+*.pyo
+*.pyd
 .Python
 env/
 venv/
 ENV/
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Git
-.git/
-.gitignore
-
-# Logs
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
 *.log
-
-# Testing
-.pytest_cache/
-htmlcov/
-
-# Environment
+.git
+.gitignore
+.mypy_cache
+.pytest_cache
+.hypothesis
+*.db
+*.sqlite
+*.sqlite3
+node_modules/
+.DS_Store
 .env
 .env.local
-
-# Node (nếu có)
-node_modules/
-
-# Render
-.render/
+firebase-key.json
+*.md
+README.md
+.vscode/
+.idea/
