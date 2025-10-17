@@ -16,21 +16,40 @@ from firebase_admin import credentials, firestore, storage
 import os
 from datetime import datetime, timedelta
 import gc
-import os
+import json
 
 # Cấu hình memory
 os.environ['OMP_NUM_THREADS'] = '1'
 app = Flask(__name__)
-CORS(app)  # Cho phép frontend gọi API
+CORS(app)
 
 # Khởi tạo Firebase Admin
-import os
-cred_path = os.environ.get('FIREBASE_CREDENTIALS', 'firebase-key.json')
-cred = credentials.Certificate(cred_path)
-firebase_admin.initialize_app(cred, {
-    'storageBucket': 'face-timekeeping-31820.firebasestorage.app'
-})
+def init_firebase():
+    """Initialize Firebase with credentials from env or file"""
+    cred_env = os.environ.get('FIREBASE_CREDENTIALS')
+    
+    if cred_env:
+        # Railway: credentials as JSON string in environment variable
+        try:
+            cred_dict = json.loads(cred_env)
+            cred = credentials.Certificate(cred_dict)
+            print("✅ Using Firebase credentials from environment variable")
+        except json.JSONDecodeError as e:
+            print(f"❌ Error parsing FIREBASE_CREDENTIALS: {e}")
+            raise
+    else:
+        # Local: credentials from file
+        cred_path = 'firebase-key.json'
+        if not os.path.exists(cred_path):
+            raise FileNotFoundError(f"❌ Firebase key file not found: {cred_path}")
+        cred = credentials.Certificate(cred_path)
+        print(f"✅ Using Firebase credentials from file: {cred_path}")
+    
+    firebase_admin.initialize_app(cred, {
+        'storageBucket': 'face-timekeeping-31820.firebasestorage.app'
+    })
 
+init_firebase()
 db = firestore.client()
 bucket = storage.bucket()
 
@@ -39,7 +58,6 @@ registered_faces = {}
 
 def base64_to_image(base64_string):
     """Chuyển đổi base64 string sang numpy array"""
-    # Loại bỏ header nếu có
     if ',' in base64_string:
         base64_string = base64_string.split(',')[1]
     
@@ -53,14 +71,14 @@ def load_registered_faces():
     registered_faces = {}
     
     try:
-        employees = db.collection('employees').limit(50).stream()  # Giới hạn 50
+        employees = db.collection('employees').limit(50).stream()
         for emp in employees:
             data = emp.to_dict()
             name = data['name']
-            descriptor = np.array(data['descriptor'], dtype=np.float32)  # Dùng float32 thay vì float64
+            descriptor = np.array(data['descriptor'], dtype=np.float32)
             registered_faces[name] = descriptor
         
-        gc.collect()  # Thu gom rác
+        gc.collect()
         print(f"✅ Đã tải {len(registered_faces)} nhân viên")
     except Exception as e:
         print(f"❌ Lỗi load faces: {e}")
@@ -80,11 +98,7 @@ def health_check():
 
 @app.route('/api/detect', methods=['POST'])
 def detect_face():
-    """
-    Phát hiện khuôn mặt trong ảnh
-    Input: { "image": "base64_string" }
-    Output: { "faces_detected": int, "locations": [...] }
-    """
+    """Phát hiện khuôn mặt trong ảnh"""
     try:
         data = request.json
         image_base64 = data.get('image')
@@ -92,7 +106,6 @@ def detect_face():
         if not image_base64:
             return jsonify({'error': 'Thiếu ảnh'}), 400
         
-        # Chuyển đổi và phát hiện
         image = base64_to_image(image_base64)
         face_locations = face_recognition.face_locations(image)
         
@@ -106,11 +119,7 @@ def detect_face():
 
 @app.route('/api/recognize', methods=['POST'])
 def recognize_face():
-    """
-    Nhận diện khuôn mặt
-    Input: { "image": "base64_string" }
-    Output: { "name": "...", "confidence": 0.95, "distance": 0.4 }
-    """
+    """Nhận diện khuôn mặt"""
     try:
         data = request.json
         image_base64 = data.get('image')
@@ -119,10 +128,7 @@ def recognize_face():
         if not image_base64:
             return jsonify({'error': 'Thiếu ảnh'}), 400
         
-        # Chuyển đổi ảnh
         image = base64_to_image(image_base64)
-        
-        # Phát hiện và mã hóa khuôn mặt
         face_locations = face_recognition.face_locations(image)
         
         if len(face_locations) == 0:
@@ -133,7 +139,6 @@ def recognize_face():
         if len(face_encodings) == 0:
             return jsonify({'name': None, 'message': 'Không thể mã hóa khuôn mặt'})
         
-        # So sánh với database
         face_encoding = face_encodings[0]
         best_match = None
         min_distance = threshold
@@ -164,11 +169,7 @@ def recognize_face():
 
 @app.route('/api/register', methods=['POST'])
 def register_face():
-    """
-    Đăng ký khuôn mặt mới
-    Input: { "name": "...", "image": "base64_string" }
-    Output: { "success": true, "message": "..." }
-    """
+    """Đăng ký khuôn mặt mới"""
     try:
         data = request.json
         name = data.get('name')
@@ -177,10 +178,7 @@ def register_face():
         if not name or not image_base64:
             return jsonify({'error': 'Thiếu tên hoặc ảnh'}), 400
         
-        # Chuyển đổi ảnh
         image = base64_to_image(image_base64)
-        
-        # Phát hiện và mã hóa
         face_locations = face_recognition.face_locations(image)
         
         if len(face_locations) == 0:
@@ -196,14 +194,12 @@ def register_face():
         
         face_encoding = face_encodings[0]
         
-        # Lưu vào Firebase
         db.collection('employees').document(name).set({
             'name': name,
             'descriptor': face_encoding.tolist(),
             'createdAt': firestore.SERVER_TIMESTAMP
         })
         
-        # Cập nhật cache
         registered_faces[name] = face_encoding
         
         return jsonify({
@@ -230,10 +226,7 @@ def delete_employee(name):
         if name not in registered_faces:
             return jsonify({'error': 'Nhân viên không tồn tại'}), 404
         
-        # Xóa từ Firebase
         db.collection('employees').document(name).delete()
-        
-        # Xóa từ cache
         del registered_faces[name]
         
         return jsonify({
@@ -247,11 +240,7 @@ def delete_employee(name):
 
 @app.route('/api/attendance', methods=['POST'])
 def check_attendance():
-    """
-    Chấm công
-    Input: { "name": "...", "is_auto": true/false }
-    Output: { "success": true, "message": "..." }
-    """
+    """Chấm công"""
     try:
         data = request.json
         name = data.get('name')
@@ -260,7 +249,6 @@ def check_attendance():
         if not name:
             return jsonify({'error': 'Thiếu tên nhân viên'}), 400
         
-        # Kiểm tra thời gian chờ
         settings = db.collection('settings').document('attendance').get()
         if settings.exists:
             config = settings.to_dict()
@@ -268,7 +256,6 @@ def check_attendance():
         else:
             cooldown = 30
         
-        # Kiểm tra lần chấm công gần nhất
         recent = db.collection('attendance')\
             .where('name', '==', name)\
             .order_by('timestamp', direction=firestore.Query.DESCENDING)\
@@ -286,7 +273,6 @@ def check_attendance():
                     'message': f'Đã chấm công rồi! Vui lòng chờ {remaining} phút nữa'
                 }), 400
         
-        # Lưu chấm công
         db.collection('attendance').add({
             'name': name,
             'type': 'checkin',
@@ -320,6 +306,5 @@ if __name__ == '__main__':
     load_registered_faces()
     print("✅ Sẵn sàng!")
     
-    # Lấy PORT từ biến môi trường (Render yêu cầu)
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
