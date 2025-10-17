@@ -1,13 +1,40 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 .Python
 env/
 venv/
-.venv
-.git
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
 .gitignore
-*.md
-.env
+
+# Logs
 *.log
+
+# Testing
+.pytest_cache/
+htmlcov/
+
+# Environment
+.env
+.env.local
+
+# Node (nếu có)
+node_modules/
+
+# Render
+.render/
