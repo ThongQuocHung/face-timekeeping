@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: face-recognition-api
+    env: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: FIREBASE_CREDENTIALS
+        sync: false

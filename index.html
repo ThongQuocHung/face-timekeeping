@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chấm công Face Recognition - Optimized</title>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .api-status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        
+        .api-status.online {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        
+        .api-status.offline {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .fps-counter {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: #48bb78;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9em;
+            z-index: 10;
+        }
+        
+        .tabs {
+            display: flex;
+            background: #f7fafc;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 600;
+            color: #718096;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .tab:hover {
+            background: #edf2f7;
+        }
+        
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+        
+        .video-section {
+            position: relative;
+        }
+        
+        #video {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        #canvas {
+            width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            flex: 1;
+            min-width: 120px;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: #48bb78;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #38a169;
+            transform: translateY(-2px);
+        }
+        
+        .btn-danger {
+            background: #f56565;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #e53e3e;
+            transform: translateY(-2px);
+        }
+        
+        .btn-warning {
+            background: #ed8936;
+            color: white;
+        }
+        
+        .btn-warning:hover {
+            background: #dd6b20;
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .card {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .card h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #4a5568;
+            font-weight: 600;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .upload-area {
+            border: 2px dashed #cbd5e0;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f7fafc;
+        }
+        
+        #imagePreview {
+            max-width: 100%;
+            max-height: 200px;
+            margin-top: 10px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .register-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .register-buttons button {
+            flex: 1;
+        }
+        
+        #employeeList {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .employee-item {
+            background: white;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .employee-item button {
+            padding: 5px 15px;
+            font-size: 0.85em;
+            min-width: 60px;
+            max-width: 80px;
+            flex: none;
+        }
+        
+        #attendanceLog {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .log-item {
+            background: white;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .log-item.checkin {
+            border-left: 4px solid #48bb78;
+        }
+        
+        .log-item.auto {
+            border-left: 4px solid #4299e1;
+        }
+        
+        .log-name {
+            font-weight: 600;
+            color: #2d3748;
+        }
+        
+        .log-time {
+            font-size: 0.9em;
+            color: #718096;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #718096;
+            font-size: 0.9em;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Hệ thống chấm công Face Recognition (Optimized)</h1>
+            <p>Backend Python với thư viện face_recognition - FPS Cao</p>
+            <div id="apiStatus" class="api-status offline">🔴 Đang kết nối API...</div>
+        </div>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('attendance')">
+                📸 Chấm công
+            </div>
+            <div class="tab" onclick="switchTab('management')">
+                📊 Quản lý
+            </div>
+        </div>
+        
+        <!-- TAB CHẤM CÔNG -->
+        <div id="attendanceTab" class="tab-content active">
+            <div class="content">
+                <div class="video-section">
+                    <div class="fps-counter" id="fpsCounter">FPS: 0</div>
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="canvas"></canvas>
+                    
+                    <div class="controls">
+                        <button id="startBtn" class="btn-primary" onclick="startVideo()">🎥 Bật Camera</button>
+                        <button id="toggleAutoBtn" class="btn-success" onclick="toggleAutoAttendance()" disabled>
+                            🤖 Bật tự động
+                        </button>
+                        <button id="manualCheckinBtn" class="btn-warning" onclick="manualCheckIn()" disabled>
+                            ✋ Chấm thủ công
+                        </button>
+                    </div>
+                    
+                    <div class="card" style="margin-top: 20px;">
+                        <h3>🎯 Trạng thái nhận diện</h3>
+                        <div id="recognitionStatus" style="padding: 15px; background: white; border-radius: 8px; text-align: center; font-weight: 600; color: #718096;">
+                            Chưa phát hiện khuôn mặt
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="info-section">
+                    <div class="card">
+                        <h3>👤 Đăng ký nhân viên mới</h3>
+                        <div class="input-group">
+                            <label for="employeeName">Tên nhân viên:</label>
+                            <input type="text" id="employeeName" placeholder="Nhập tên...">
+                        </div>
+                        
+                        <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                            <div>📁 Nhấn để chọn ảnh hoặc kéo thả file vào đây</div>
+                            <div style="font-size: 0.9em; color: #718096; margin-top: 5px;">
+                                Hỗ trợ: JPG, PNG, JPEG
+                            </div>
+                            <input type="file" id="fileInput" accept="image/*" style="display: none" onchange="handleFileSelect(event)">
+                            <img id="imagePreview" alt="Preview">
+                        </div>
+                        
+                        <div class="register-buttons">
+                            <button class="btn-primary" onclick="registerFaceFromCamera()">📸 Chụp từ Camera</button>
+                            <button class="btn-primary" onclick="registerFaceFromFile()" id="registerFileBtn" disabled>💾 Lưu từ File</button>
+                        </div>
+                        
+                        <div style="margin-top: 20px;">
+                            <h4 style="margin-bottom: 10px; color: #4a5568;">Danh sách nhân viên:</h4>
+                            <div id="employeeList"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>📋 Lịch sử chấm công hôm nay</h3>
+                        <div id="attendanceLog"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- TAB QUẢN LÝ -->
+        <div id="managementTab" class="tab-content">
+            <div style="padding: 30px;">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalEmployees">0</div>
+                        <div class="stat-label">Tổng nhân viên</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="todayAttendance">0</div>
+                        <div class="stat-label">Đã chấm công hôm nay</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalRecords">0</div>
+                        <div class="stat-label">Tổng bản ghi</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+        
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+        let recognizedPerson = null;
+        let uploadedImage = null;
+        let db = null;
+        let autoAttendanceEnabled = false;
+        let lastAttendanceTime = {};
+        let isRecognizing = false;
+        let recognitionInterval = null;
+        let renderAnimationId = null;
+        let lastFaceLocation = null;
+        
+        // FPS Counter
+        let fps = 0;
+        let lastFrameTime = Date.now();
+        let frameCount = 0;
+        
+        function updateFPS() {
+            frameCount++;
+            const now = Date.now();
+            const elapsed = now - lastFrameTime;
+            
+            if (elapsed >= 1000) {
+                fps = Math.round((frameCount * 1000) / elapsed);
+                document.getElementById('fpsCounter').textContent = `FPS: ${fps}`;
+                frameCount = 0;
+                lastFrameTime = now;
+            }
+        }
+        
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            
+            if (tabName === 'management') {
+                loadManagementData();
+            }
+        }
+        
+        function initializeFirebase() {
+            const config = {
+                apiKey: "AIzaSyAZDW0slaLtUt3B6ekWrcEYX0O_HdlqH78",
+                authDomain: "face-timekeeping-31820.firebaseapp.com",
+                projectId: "face-timekeeping-31820",
+                storageBucket: "face-timekeeping-31820.firebasestorage.app",
+                messagingSenderId: "505981618317",
+                appId: "1:505981618317:web:3b42d54a197784b5b67ac4"
+            };
+            
+            try {
+                firebase.initializeApp(config);
+                db = firebase.firestore();
+                checkAPIStatus();
+                loadEmployeeList();
+                loadTodayAttendance();
+            } catch (error) {
+                console.error('Lỗi Firebase:', error);
+            }
+        }
+        
+        async function checkAPIStatus() {
+            try {
+                const response = await fetch(`${API_URL}/health`);
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('apiStatus');
+                if (response.ok) {
+                    statusEl.className = 'api-status online';
+                    statusEl.innerHTML = `🟢 API Online - ${data.registered_employees} nhân viên`;
+                } else {
+                    throw new Error('API không phản hồi');
+                }
+            } catch (error) {
+                const statusEl = document.getElementById('apiStatus');
+                statusEl.className = 'api-status offline';
+                statusEl.innerHTML = '🔴 API Offline - Vui lòng khởi động backend';
+                console.error('API Error:', error);
+            }
+        }
+        
+        async function loadEmployeeList() {
+            try {
+                const response = await fetch(`${API_URL}/employees`);
+                const data = await response.json();
+                
+                const list = document.getElementById('employeeList');
+                list.innerHTML = '';
+                
+                data.employees.forEach(name => {
+                    const item = document.createElement('div');
+                    item.className = 'employee-item';
+                    item.innerHTML = `
+                        <span>${name}</span>
+                        <button class="btn-danger" onclick="deleteEmployee('${name}')">Xóa</button>
+                    `;
+                    list.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Lỗi tải danh sách:', error);
+            }
+        }
+        
+        async function loadTodayAttendance() {
+            try {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                const snapshot = await db.collection('attendance')
+                    .where('timestamp', '>=', firebase.firestore.Timestamp.fromDate(today))
+                    .orderBy('timestamp', 'desc')
+                    .get();
+                
+                const log = document.getElementById('attendanceLog');
+                log.innerHTML = '';
+                
+                lastAttendanceTime = {};
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const time = data.timestamp.toDate();
+                    
+                    lastAttendanceTime[data.name] = time;
+                    
+                    const item = document.createElement('div');
+                    item.className = `log-item ${data.isAuto ? 'auto' : 'checkin'}`;
+                    const timeStr = time.toLocaleString('vi-VN');
+                    const typeText = data.isAuto ? '🤖 Tự động' : '✋ Thủ công';
+                    
+                    item.innerHTML = `
+                        <div class="log-name">${data.name} - ${typeText}</div>
+                        <div class="log-time">${timeStr}</div>
+                    `;
+                    log.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Lỗi tải lịch sử:', error);
+            }
+        }
+        
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = document.getElementById('imagePreview');
+                    img.src = e.target.result;
+                    img.style.display = 'block';
+                    uploadedImage = e.target.result;
+                    document.getElementById('registerFileBtn').disabled = false;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        
+        async function registerFaceFromFile() {
+            const name = document.getElementById('employeeName').value.trim();
+            
+            if (!name) {
+                alert('Vui lòng nhập tên nhân viên!');
+                return;
+            }
+            
+            if (!uploadedImage) {
+                alert('Vui lòng chọn ảnh trước!');
+                return;
+            }
+            
+            const btn = document.getElementById('registerFileBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<div class="loading-spinner"></div> Đang xử lý...';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch(`${API_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        image: uploadedImage
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert(`✅ ${data.message}`);
+                    document.getElementById('employeeName').value = '';
+                    document.getElementById('imagePreview').style.display = 'none';
+                    document.getElementById('fileInput').value = '';
+                    uploadedImage = null;
+                    loadEmployeeList();
+                    checkAPIStatus();
+                } else {
+                    alert(`❌ ${data.error}`);
+                }
+            } catch (error) {
+                alert('❌ Lỗi kết nối API: ' + error.message);
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = !uploadedImage;
+            }
+        }
+        
+        async function registerFaceFromCamera() {
+            const name = document.getElementById('employeeName').value.trim();
+            
+            if (!name) {
+                alert('Vui lòng nhập tên nhân viên!');
+                return;
+            }
+            
+            if (!video.srcObject) {
+                alert('Vui lòng bật camera trước!');
+                return;
+            }
+            
+            try {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = video.videoWidth;
+                tempCanvas.height = video.videoHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(video, 0, 0);
+                const imageData = tempCanvas.toDataURL('image/jpeg', 0.9);
+                
+                const response = await fetch(`${API_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        image: imageData
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert(`✅ ${data.message}`);
+                    document.getElementById('employeeName').value = '';
+                    loadEmployeeList();
+                    checkAPIStatus();
+                } else {
+                    alert(`❌ ${data.error}`);
+                }
+            } catch (error) {
+                alert('❌ Lỗi: ' + error.message);
+            }
+        }
+        
+        async function deleteEmployee(name) {
+            if (!confirm(`Xóa nhân viên: ${name}?`)) return;
+            
+            try {
+                const response = await fetch(`${API_URL}/employees/${encodeURIComponent(name)}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert('✅ ' + data.message);
+                    loadEmployeeList();
+                    checkAPIStatus();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Lỗi: ' + error.message);
+            }
+        }
+        
+        async function startVideo() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        frameRate: { ideal: 30 }
+                    } 
+                });
+                video.srcObject = stream;
+                
+                video.addEventListener('loadedmetadata', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    
+                    renderVideo();
+                    startRecognition();
+                });
+                
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('toggleAutoBtn').disabled = false;
+                document.getElementById('manualCheckinBtn').disabled = false;
+            } catch (error) {
+                alert('Không thể truy cập camera: ' + error.message);
+            }
+        }
+        
+        function renderVideo() {
+            if (!video.srcObject) return;
+            
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Vẽ lại ô vuông nếu có người được nhận diện
+            if (recognizedPerson && lastFaceLocation) {
+                drawFaceBox(lastFaceLocation, recognizedPerson);
+            }
+            
+            updateFPS();
+            renderAnimationId = requestAnimationFrame(renderVideo);
+        }
+        
+        function startRecognition() {
+            if (recognitionInterval) clearInterval(recognitionInterval);
+            recognitionInterval = setInterval(recognizeFaces, 1000);
+        }
+        
+        async function recognizeFaces() {
+            if (!video.srcObject || isRecognizing) return;
+            
+            isRecognizing = true;
+            
+            try {
+                const smallCanvas = document.createElement('canvas');
+                smallCanvas.width = 320;
+                smallCanvas.height = 240;
+                const smallCtx = smallCanvas.getContext('2d');
+                smallCtx.drawImage(video, 0, 0, 320, 240);
+                
+                const imageData = smallCanvas.toDataURL('image/jpeg', 0.7);
+                
+                const response = await fetch(`${API_URL}/recognize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: imageData,
+                        threshold: 0.6
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.name) {
+                    recognizedPerson = data.name;
+                    
+                    const statusEl = document.getElementById('recognitionStatus');
+                    statusEl.innerHTML = `
+                        ✅ Đã nhận diện: <strong style="color: #48bb78;">${data.name}</strong><br>
+                        <small style="color: #718096;">Độ tin cậy: ${(data.confidence * 100).toFixed(1)}%</small>
+                    `;
+                    
+                    if (data.location) {
+                        lastFaceLocation = data.location;  // ← SỬA: Chỉ lưu vị trí, KHÔNG vẽ
+                        // XÓA dòng: drawFaceBox(data.location, data.name);
+                    }
+                    
+                    if (autoAttendanceEnabled) {
+                        await autoCheckIn(data.name);
+                    }
+                } else {
+                    recognizedPerson = null;
+                    lastFaceLocation = null;  // ← THÊM: Xóa vị trí khi không detect được
+                    document.getElementById('recognitionStatus').innerHTML = 
+                        data.message || 'Chưa phát hiện khuôn mặt';
+                }
+            } catch (error) {
+                console.error('Lỗi nhận diện:', error);
+            } finally {
+                isRecognizing = false;
+            }
+        }
+        
+        function drawFaceBox(location, name) {
+            const [top, right, bottom, left] = location;
+            const scaleX = canvas.width / 320;
+            const scaleY = canvas.height / 240;
+            
+            ctx.strokeStyle = '#48bb78';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(
+                left * scaleX,
+                top * scaleY,
+                (right - left) * scaleX,
+                (bottom - top) * scaleY
+            );
+            
+            ctx.fillStyle = '#48bb78';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText(name, left * scaleX, top * scaleY - 10);
+        }
+        
+        function toggleAutoAttendance() {
+            autoAttendanceEnabled = !autoAttendanceEnabled;
+            const btn = document.getElementById('toggleAutoBtn');
+            
+            if (autoAttendanceEnabled) {
+                btn.textContent = '🛑 Tắt tự động';
+                btn.className = 'btn-danger';
+                alert('✅ Đã bật chế độ tự động chấm công');
+            } else {
+                btn.textContent = '🤖 Bật tự động';
+                btn.className = 'btn-success';
+                alert('⏸️ Đã tắt chế độ tự động chấm công');
+            }
+        }
+        
+        async function autoCheckIn(name) {
+            if (lastAttendanceTime[name]) {
+                const diff = (new Date() - lastAttendanceTime[name]) / (1000 * 60);
+                if (diff < 30) return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/attendance`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        is_auto: true
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    lastAttendanceTime[name] = new Date();
+                    addAttendanceLogLocal(name, true);
+                }
+            } catch (error) {
+                console.error('Lỗi chấm công tự động:', error);
+            }
+        }
+        
+        async function manualCheckIn() {
+            if (!recognizedPerson) {
+                alert('⚠️ Không phát hiện khuôn mặt hoặc chưa nhận diện được!');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/attendance`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: recognizedPerson,
+                        is_auto: false
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    lastAttendanceTime[recognizedPerson] = new Date();
+                    addAttendanceLogLocal(recognizedPerson, false);
+                    alert(`✅ ${data.message}`);
+                } else {
+                    alert(`❌ ${data.message}`);
+                }
+            } catch (error) {
+                alert('❌ Lỗi: ' + error.message);
+            }
+        }
+        
+        function addAttendanceLogLocal(name, isAuto) {
+            const log = document.getElementById('attendanceLog');
+            const time = new Date().toLocaleString('vi-VN');
+            const typeText = isAuto ? '🤖 Tự động' : '✋ Thủ công';
+            
+            const item = document.createElement('div');
+            item.className = `log-item ${isAuto ? 'auto' : 'checkin'}`;
+            item.innerHTML = `
+                <div class="log-name">${name} - ${typeText}</div>
+                <div class="log-time">${time}</div>
+            `;
+            
+            log.insertBefore(item, log.firstChild);
+        }
+        
+        async function loadManagementData() {
+            try {
+                const response = await fetch(`${API_URL}/employees`);
+                const data = await response.json();
+                document.getElementById('totalEmployees').textContent = data.total;
+                
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                const todaySnapshot = await db.collection('attendance')
+                    .where('timestamp', '>=', firebase.firestore.Timestamp.fromDate(today))
+                    .get();
+                
+                const uniqueToday = new Set();
+                todaySnapshot.forEach(doc => uniqueToday.add(doc.data().name));
+                document.getElementById('todayAttendance').textContent = uniqueToday.size;
+                
+                const totalSnapshot = await db.collection('attendance').get();
+                document.getElementById('totalRecords').textContent = totalSnapshot.size;
+            } catch (error) {
+                console.error('Lỗi tải dữ liệu:', error);
+            }
+        }
+        
+        window.addEventListener('beforeunload', () => {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            if (recognitionInterval) {
+                clearInterval(recognitionInterval);
+            }
+            if (renderAnimationId) {
+                cancelAnimationFrame(renderAnimationId);
+            }
+        });
+        
+        window.addEventListener('DOMContentLoaded', () => {
+            initializeFirebase();
+            setInterval(checkAPIStatus, 30000);
+        });
+    </script>
+</body>
+</html>
